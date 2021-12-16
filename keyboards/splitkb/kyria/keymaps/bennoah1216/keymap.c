@@ -1,5 +1,5 @@
 /* Copyright 2019 Thomas Baart <thomas@splitkb.com>
- *
+ *Ben Noah
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 2 of the License, or
@@ -14,7 +14,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include QMK_KEYBOARD_H
-#include <stdio.h>
 
 enum layers {
     _QWERTY = 0,
@@ -217,10 +216,32 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     ),
 };
 
+/* The default OLED and rotary encoder code can be found at the bottom of qmk_firmware/keyboards/splitkb/kyria/rev1/rev1.c
+ * These default settings can be overriden by your own settings in your keymap.c
+ * For your convenience, here's a copy of those settings so that you can uncomment them if you wish to apply your own modifications.
+ * DO NOT edit the rev1.c file; instead override the weakly defined default functions by your own.
+ */
+
 #ifdef OLED_ENABLE
 oled_rotation_t oled_init_user(oled_rotation_t rotation) { return OLED_ROTATION_180; }
 
-static void render_status(void) {
+#    define IDLE_FRAMES 5
+#    define IDLE_SPEED 40 // below this wpm value your animation will idle
+
+// #define PREP_FRAMES 1 // uncomment if >1
+
+#    define TAP_FRAMES 2
+#    define TAP_SPEED 60 // above this wpm value typing animation to triggere
+#    define ANIM_FRAME_DURATION 200  // how long each frame lasts in ms
+#    define ANIM_SIZE           636   // number of bytes in array. If you change sprites, minimize for adequate firmware size. max is 1024
+
+uint32_t anim_timer = 0;
+uint32_t anim_sleep = 0;
+
+uint8_t current_idle_frame = 0;
+uint8_t current_tap_frame = 0;
+bool oled_task_user(void) {
+    if (is_keyboard_master()) {
         // QMK Logo and version information
         // clang-format off
         static const char PROGMEM qmk_logo[] = {
@@ -265,29 +286,9 @@ static void render_status(void) {
         oled_write_P(led_usb_state.num_lock    ? PSTR("NUMLCK ") : PSTR("       "), false);
         oled_write_P(led_usb_state.caps_lock   ? PSTR("CAPLCK ") : PSTR("       "), false);
         oled_write_P(led_usb_state.scroll_lock ? PSTR("SCRLCK ") : PSTR("       "), false);
-    }
-
-#define IDLE_FRAMES 5
-#define IDLE_SPEED 40 // below this wpm value your animation will idle
-
-// #define PREP_FRAMES 1 // uncomment if >1
-
-#define TAP_FRAMES 2
-#define TAP_SPEED 60 // above this wpm value typing animation to triggere
-/* advanced settings */
-#    define ANIM_FRAME_DURATION 200  // how long each frame lasts in ms
-#    define ANIM_SIZE           636   // number of bytes in array. If you change sprites, minimize for adequate firmware size. max is 1024
-
-/* timers */
-uint32_t anim_timer = 0;
-uint32_t anim_sleep = 0;
-
-/* current frame */
-uint8_t current_idle_frame = 0;
-uint8_t current_tap_frame = 0;
-
-static void render_anim(void) {
-    static const char PROGMEM idle[IDLE_FRAMES][ANIM_SIZE] = {
+     // Renders the current keyboard state (layer, lock, caps, scroll, etc)
+    } else {
+        static const char PROGMEM idle[IDLE_FRAMES][ANIM_SIZE] = {
         {
         0,  0,126,126, 24, 60,102, 66,  0, 12, 28,112,112, 28, 12,  0,116,116, 20, 20,124,104,  0,124,124,  0,112,120, 44, 36,124,124,0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,128, 64, 64, 32, 32, 32, 32, 16, 16, 16, 16, 16,  8,  8,  4,  4,  4,  8, 48, 64,128,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,128,128,128,
         0,  0,  0,  0,192, 96, 48, 24, 12,132,198, 98, 35, 51, 17,145,113,241,113,145, 17, 51, 35, 98,198,132, 12, 24, 48, 96,192,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, 24,100,130,  2,  2,  2,  2,  2,  1,  0,  0,  0,  0,128,128,  0,  0,  0,  0,  0,  0,  0,  0,  0,128,  0, 48, 48,  0,192,193,193,194,  4,  8, 16, 32, 64,128,  0,  0,  0,128,128,128,128, 64, 64, 64, 64, 32, 32, 32, 32, 16, 16, 16, 16,  8,  8,  8,  8,  8,196,  4,196,  4,196,  2,194,  2,194,  1,  1,  1,  1,  0,  0,  0,
@@ -380,20 +381,10 @@ static void render_anim(void) {
                 animation_phase();
             }
         }
-    }
-}
-bool oled_task_user(void) {
-    if (is_keyboard_master()) {
-        oled_set_cursor(7,6);
-        render_status();
-     // Renders the current keyboard state (layer, lock, caps, scroll, etc)
-    } else {
-        render_anim();
-        oled_set_cursor(0,6);
-    	/* wpm counter */
+    };
     	oled_write_P(PSTR("WPM: "), false);
     	oled_write(get_u8_str(get_current_wpm(), ' '), false);
-    }
+    };
     return false;
 }
 #endif
